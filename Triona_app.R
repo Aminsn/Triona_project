@@ -9,7 +9,7 @@ set.seed(123)
 
 ui <- fluidPage(
   
-  titlePanel(""),
+  titlePanel("Application"), #App's title
   hr(),
   p(div(HTML(""))),
   
@@ -20,24 +20,27 @@ ui <- fluidPage(
         column(width=12,
                
                h4(div(HTML("<em>Initial values:</em>"))),
-               # Input: Selector for choosing dataset ----
-               
+
             # Data Input:
                fileInput('datafile', 'Select your data CSV file',
                          accept=c('csv', 'comma-separated-values','.csv')),
                
             # Variables Inputs:
-               textInput("lower", "lower_x vector", "10,1.8,10"),
+               textInput("lower", "Enter lower_d vector (comma delimited)", "10,1.8,10"),
                
-               textInput("higher", "upper_x vector", "30,2.6,30"),
+               textInput("higher", "Enter upper_d vector (comma delimited)", "30,2.6,30"),
                
                numericInput("efficiency", "new_efficiency", value = NA),
+            
+               uiOutput("reset_button"),
+            
                
             # Run Button
                actionButton(inputId = "run", label = "Run"),
-               
+               hr(),
             # Download Button
-               downloadButton("downloadData", "Download")
+            uiOutput("button_title"),
+            uiOutput("download_button")
                
         ))),
     
@@ -86,12 +89,15 @@ ui <- fluidPage(
 
 
 
-server <- function(input, output) {
+server <- function(input, output, session) {
  
   
   
   observeEvent(input$run, {
-  # These are the acquisiton functions used to optimise the design space
+  
+    req(input$datafile)
+    
+    # These are the acquisiton functions used to optimise the design space
   acquisitions = c("Random","AKG","EQI","Grid")
   
   # I'm not sure how to do a loop type thing in the app while still getting feedback (experimental result input) from the user!
@@ -110,8 +116,8 @@ server <- function(input, output) {
     doe.size = dim(data)[2]-1 # size of the design space i.e. number of x / input variables
     
 
-    lower_x = c(10,1.8,10)
-    upper_x = c(30,2.6,30)
+    lower_x = as.numeric(unlist(strsplit(input$lower,",")))
+    upper_x = as.numeric(unlist(strsplit(input$higher,",")))
     
     prior_data = data[,1:doe.size]
     prior_response = -data[,4] # minimise the negative to optimise the positive
@@ -157,7 +163,9 @@ server <- function(input, output) {
     
     output$text1 <- renderText({
       
-    paste0("Based on the ", acq, " acquisition function, please set up your next experiment at: ")
+      req(input$datafile)
+      
+      paste0("Based on the ", acq, " acquisition function, please set up your next experiment at: ")
     
   })
   
@@ -167,17 +175,19 @@ server <- function(input, output) {
   
   })
   # 
-  
-   output$plot <- renderPlot({
      
-     req(input$datafile)
+     data = reactive({
+       
+       read.csv(input$datafile$datapath)
      
-     data = read.csv(input$datafile$datapath)
+     })
      
-     doe.size = dim(data)[2]-1 
-     prior_data = data[,1:doe.size]
-     prior_response = -data[,4]
-     exp_type = rep("Prior",dim(data)[1])
+  res_dframe = reactive({
+    
+     doe.size = dim(data())[2]-1 
+     prior_data = data()[,1:doe.size]
+     prior_response = -data()[,4]
+     exp_type = rep("Prior",dim(data())[1])
      
      
     ## USER APP INPUT
@@ -206,34 +216,92 @@ server <- function(input, output) {
 
     res_dframe=data.frame(current_data)
     
-    res_dframe2= reactive({data.frame(current_data)})
+    return(res_dframe)
     
+     })
 
-    max_response <- -min(prior_response)
-    min_response <- -max(prior_response)
-    p=ggplot(data = res_dframe)+
+  
+  
+  
+  max_response = reactive({
+          
+          prior_response = -data()[,4]
+          max_response <- -min(prior_response)
+          return(max_response)
+    
+             })
+    
+  min_response  = reactive({
+        
+              prior_response = -data()[,4]
+               min_response <- -max(prior_response)
+               return(min_response)
+               
+              })
+               
+               
+    output$plot <- renderPlot({
+      
+    p=ggplot(data = res_dframe())+
       geom_point( aes(x = index, y = -target_response, color = Acquisition),size=5) +
       xlab('Experiment number') +
       ylab('Target response') +
-      expand_limits(y=c(min_response,max_response))
+      expand_limits(y=c(min_response(),max_response()))
 
     p + theme_bw()+ #+  geom_text(aes(x = scan_speed_mmpers, y = efficiency_mgperl))+
       theme(text = element_text(size=20))
 
   })
+    
+    output$reset_button  =  renderUI({
+      
 
-   
-  }) #End of observation
+    actionButton("reset", "Reset all")
+    
+    
+    })
+    
+    
+             output$button_title  =  renderUI({
+               
+               h4(div(HTML("Download new data")))
+               
+               
+             })
+    
+    
+    
+    
+          output$download_button  =  renderUI({
+               
+               downloadButton("downloadData", "Download")
+               
+             })
   
   # Downloadable csv of selected dataset ----
   output$downloadData <- downloadHandler(
-    filename = function() {
-      paste("new_data.csv", sep = "")
-    },
-    content = function(file) {
-      write.csv(res_dframe2(), file, row.names = FALSE)
+    filename = function(){"New_data.csv"}, 
+    content = function(fname){
+      write.csv(data(), fname)
     }
   )
+  
+
+  }) #End of observation
+  
+  #Reset all inputs:
+  observeEvent(input$reset,{
+    
+    updateTextInput(session,"lower", "lower_x vector", "10,1.8,10")
+    updateTextInput(session, "higher", "upper_x vector", "30,2.6,30")
+    output$button_title = NULL
+    output$download_button = NULL
+    output$reset_button = NULL
+    output$text1 = NULL
+    output$setting = NULL
+    output$plot = NULL
+    
+  })
   
 }
 
