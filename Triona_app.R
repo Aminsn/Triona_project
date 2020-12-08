@@ -30,8 +30,6 @@ ui <- fluidPage(
                
                textInput("higher", "Enter upper_d vector (comma delimited)", "30,2.6,30"),
                
-               numericInput("efficiency", "new_efficiency", value = NA),
-            
                uiOutput("reset_button"),
             
                
@@ -59,6 +57,7 @@ ui <- fluidPage(
                               
                               textOutput("text1"),
                              uiOutput("setting"),
+                             uiOutput("new_value"),
                              hr(),
                              plotOutput("plot")
                               
@@ -182,8 +181,18 @@ server <- function(input, output, session) {
      
      })
      
+     output$new_value = renderUI({
+       
+       numericInput("efficiency", "Please enter the result (target response) of the experiment below to continue:", value = NA)
+       
+     })
+     
+     
   res_dframe = reactive({
     
+    
+    if(!is.na(input$efficiency)) {
+      
      doe.size = dim(data())[2]-1 
      prior_data = data()[,1:doe.size]
      prior_response = -data()[,4]
@@ -191,7 +200,7 @@ server <- function(input, output, session) {
      
      
     ## USER APP INPUT
-    new_efficiency=0.42 # provided by experiment via engineer via app!
+    new_efficiency= input$efficiency # provided by experiment via engineer via app!
 
     ################################################################################################################
     ########### STEP 4. # Add the new datapoint to the dataset.  ###################################################
@@ -217,6 +226,7 @@ server <- function(input, output, session) {
     res_dframe=data.frame(current_data)
     
     return(res_dframe)
+    }
     
      })
 
@@ -242,6 +252,8 @@ server <- function(input, output, session) {
                
     output$plot <- renderPlot({
       
+      if(!is.na(input$efficiency)) {
+      
     p=ggplot(data = res_dframe())+
       geom_point( aes(x = index, y = -target_response, color = Acquisition),size=5) +
       xlab('Experiment number') +
@@ -250,7 +262,7 @@ server <- function(input, output, session) {
 
     p + theme_bw()+ #+  geom_text(aes(x = scan_speed_mmpers, y = efficiency_mgperl))+
       theme(text = element_text(size=20))
-
+              } 
   })
     
     output$reset_button  =  renderUI({
@@ -282,7 +294,7 @@ server <- function(input, output, session) {
   output$downloadData <- downloadHandler(
     filename = function(){"New_data.csv"}, 
     content = function(fname){
-      write.csv(data(), fname)
+      write.csv(res_dframe(), fname)
     }
   )
   
@@ -300,6 +312,7 @@ server <- function(input, output, session) {
     output$text1 = NULL
     output$setting = NULL
     output$plot = NULL
+    output$new_value = NULL
     
   })
   
