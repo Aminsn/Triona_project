@@ -26,9 +26,17 @@ ui <- fluidPage(
                          accept=c('csv', 'comma-separated-values','.csv')),
                
             # Variables Inputs:
-               textInput("lower", "Enter lower_d vector (comma delimited)", "10,1.8,10"),
-               
-               textInput("higher", "Enter upper_d vector (comma delimited)", "30,2.6,30"),
+               uiOutput("selectize1"),
+               uiOutput("selectize2"),
+               uiOutput("action1"),
+               hr(),
+               uiOutput("lower1"),
+            
+               uiOutput("higher1"),
+               # 
+               # textInput("lower", "Enter lower_d vector (comma delimited)", "10,1.8,10"),
+               # 
+               # textInput("higher", "Enter upper_d vector (comma delimited)", "30,2.6,30"),
                
                uiOutput("reset_button"),
             
@@ -90,6 +98,50 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
  
+  observeEvent(input$datafile, {
+    
+    Dataset = read.csv(input$datafile$datapath)
+    
+    varnames <- names(Dataset)
+    
+    output$selectize1 <- renderUI({
+      
+      selectizeInput('invar',"Select Input Variables", choices = varnames, multiple = TRUE)
+      
+    }) 
+    
+    output$selectize2 <- renderUI({
+      
+      selectizeInput('dvar',"Select target Variable", choices = varnames, multiple = TRUE)
+      
+    }) 
+    
+    output$action1 <- renderUI({
+      
+      actionButton("next1", "Next")
+      
+      
+    }) 
+    
+  })
+  
+  
+  observeEvent(input$next1, {
+    
+    output$lower1 <- renderUI({
+    
+    textInput("lower", "Replace each variable's name with its lower bound value", paste0(input$invar[1]," ," ,input$invar[2]," ,", input$invar[3]))
+    
+    }) 
+      
+      output$higher1 <- renderUI({
+      
+    textInput("higher", "Replace each variable's name with its higher bound value", paste0(input$invar[1]," ," ,input$invar[2]," ,", input$invar[3]))
+    
+  })
+      
+  }) 
+  
   
   
   observeEvent(input$run, {
@@ -164,6 +216,7 @@ server <- function(input, output, session) {
       
       req(input$datafile)
       
+
       paste0("Based on the ", acq, " acquisition function, please set up your next experiment at: ")
     
   })
@@ -290,8 +343,11 @@ server <- function(input, output, session) {
                
              })
   
+          
+     
   # Downloadable csv of selected dataset ----
   output$downloadData <- downloadHandler(
+    
     filename = function(){"New_data.csv"}, 
     content = function(fname){
       write.csv(res_dframe(), fname)
