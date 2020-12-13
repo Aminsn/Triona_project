@@ -63,7 +63,8 @@ ui <- fluidPage(
                               textOutput("text1"),
                               uiOutput("setting") ,
                               uiOutput("new_value"),
-                              uiOutput("reRun"),
+                              uiOutput("proc"),
+                              #uiOutput("reRun"),
                               hr(),
                               #plotOutput("plot") %>% withSpinner(color="#1E90FF")
                               uiOutput("plott")
@@ -77,6 +78,16 @@ ui <- fluidPage(
                               p("The new dataset will appear here only after all the needed information is given to the app."),
                               tableOutput("table"),
                               tableOutput("rerunTest")
+                              
+                            )
+                          )
+                 ),
+                 
+                 tabPanel("Check",  
+                          fluidPage(
+                            fluidRow(
+                              tableOutput("table2"),
+                             
                               
                             )
                           )
@@ -98,13 +109,14 @@ server <- function(input, output, session) {
   
   
   
-  #df_new = reactiveVal(NULL)
+  df_dim = reactiveVal(NULL)
   values = reactiveValues()
   
   
   observeEvent(input$datafile, { #1. Getting data and variable determination
 
       Dataset = read.csv(input$datafile$datapath)
+      df_dim(   rep("Prior", nrow(Dataset))  )
 
     varnames <- names(Dataset)
 
@@ -149,19 +161,22 @@ server <- function(input, output, session) {
   }) #End of observation 2 after setting input and response variables
 
   
-  data = reactive({
+  data = reactive({ #Check if there is new data, if not use the previous one
+    
     
     if(is.null(values$DF)){
-      read.csv(input$datafile$datapath)}
+      
+                 #df0 = 
+                   read.csv(input$datafile$datapath)
+                 # df0$Acquisition = rep("Prior", nrow(df0))
+                 # return(df0)
+      
+      }
     else{values$DF}
     
   })
 
-  firstrows = reactive({ #This is just for indexing data later
-    
-    dim(read.csv(input$datafile$datapath))[1]
-    
-    })
+  
 
   observeEvent(input$run, { #3 Running the model
 
@@ -192,7 +207,7 @@ server <- function(input, output, session) {
       prior_data = data()[,input$invar]
       #prior_response = -data[,4] # minimise the negative to optimise the positive
       prior_response = -data()[,input$dvar]
-      exp_type = rep("Prior",firstrows())
+      #exp_type = rep("Prior",nrow(data()))
 
       # First fit a noiseless model to estimate the nugget effect using MLE
       model_nugget <- km(y~1, # constant linear trend
@@ -230,9 +245,9 @@ server <- function(input, output, session) {
       res <- round(t(res),1) # might need to be changed to 2 decimal places or a user input in a later version of the app
       values$RES = res
 
-    })
+    }) #End of 1st run
 
-    output$text1 <- renderText({
+    output$text1 <- renderText({ #Report based on the run
 
       req(values$RES)
 
@@ -241,7 +256,7 @@ server <- function(input, output, session) {
 
     })
 
-    output$setting <- renderTable({
+    output$setting <- renderTable({ #Report based on the run
 
       req(values$RES)
 
@@ -252,30 +267,39 @@ server <- function(input, output, session) {
     
     
     
-    output$new_value = renderUI({
+    output$new_value = renderUI({ #Ask for new input (efficiency)
 
       req(values$RES)
 
       numericInput("efficiency", "Please enter the result (target response) of the experiment below to continue:", value = NA)
 
     })
-    # 
-    # 
-    res_dframe = reactive({
+    
+ 
+    output$proc = renderUI({ #Permition to proceed
+      
+      req(values$RES)
+      
+          actionButton("proceed", "Proceed")  
+          
+    })
+    
+    
+    res_dframe = eventReactive(input$proceed, { #Updating dataset
 
 
       req(input$efficiency)
 
         #prior_data = data[,1:doe.size]
-        prior_data = data()[,input$invar]
+        prior_data = data()[,c(input$invar)]
         #prior_response = -data[,4] # minimise the negative to optimise the positive
         prior_response = -data()[,input$dvar]
 
         # doe.size = dim(data())[2]-1
         # prior_data = data()[,1:doe.size]
         # prior_response = -data()[,4]
-        exp_type = rep("Prior",dim(data())[1])
-
+        
+        
 
         ## USER APP INPUT
         new_efficiency= input$efficiency # provided by experiment via engineer via app!
@@ -289,22 +313,18 @@ server <- function(input, output, session) {
 
         prior_data = rbind(prior_data,res2)
         prior_response = c(prior_response,-new_efficiency)
-        exp_type = c(exp_type,values$ACQ)
+        #exp_type = data()$Acquisition #data()$Acquisition
+        #exp_type2 = c(data()$Acquisition,"test") #values$ACQ
+        df_dim(c(df_dim(),values$ACQ))
 
-        current_data = cbind(prior_data,prior_response,exp_type)
+        current_data = cbind(prior_data,prior_response,df_dim())
 
         # This dataset can be used for the output plot.
-        current_data = cbind(c(1:dim(current_data)[1]),prior_data,prior_response,exp_type)
+        current_data = cbind(c(1:dim(prior_data)[1]),prior_data,prior_response,df_dim())
 
-        ################################################################################################################
-        ########### STEP 5. Update the plot  ###################################################
-        ################################################################################################################
         names(current_data)=c("index",names(prior_data),"target_response","Acquisition")
 
         res_dframe=data.frame(current_data)
-        
-        #values$DF = res_dframe %>% mutate(target_response = target_response * -1)
-        
 
         return(res_dframe)
 
@@ -312,27 +332,33 @@ server <- function(input, output, session) {
     })
 
     
-    observeEvent(input$efficiency,{
-      
-      req(input$efficiency)
-      
-      
-      output$reRun = renderUI({
-        
-        actionButton("rerun", "Update data")
-        
-      })
-      
-    })
+    # observeEvent(input$efficiency,{
+    #   
+    #   req(input$efficiency)
+    #   
+    #   
+    #   output$reRun = renderUI({
+    #     
+    #     actionButton("rerun", "Update data")
+    #     
+    #   })
+    #   
+    # })
     
     
-    observeEvent(input$rerun,{
+    observeEvent(input$proceed,{
+      
+      req(res_dframe())
       
       values$DF = res_dframe() %>% mutate(target_response = target_response * -1)
       
     })
     
-    
+    output$table2 = renderTable({
+     
+     df_dim()
+      
+      })
     
     # 
     # 
@@ -416,32 +442,32 @@ server <- function(input, output, session) {
       
       
     })
-    # 
-    # # Downloadable csv of selected dataset ----
-    # output$downloadData <- downloadHandler(
-    #   
-    #   filename = function(){"New_data.csv"}, 
-    #   content = function(fname){
-    #     write.csv(new_data(), fname)
-    #   }
-    # )
+    
+    # Downloadable csv of selected dataset ----
+    output$downloadData <- downloadHandler(
+
+      filename = function(){"New_data.csv"},
+      content = function(fname){
+        write.csv(values$DF, fname)
+      }
+    )
     
   #}) #End of observation 3 after clicking run
   
   #Reset all inputs:
-  # observeEvent(input$datafile,{ # 4 Reseting everything when a new dataset is observed
-  #   
+   observeEvent(input$datafile, suspended = TRUE, { # 4 Reseting everything when a new dataset is observed
+  # 
   #   # output$selectize1 = NULL
   #   # output$selectize2 = NULL
-  #   output$button_title = NULL
-  #   output$download_button = NULL
-  #   output$text1 = NULL
-  #   output$setting = NULL
-  #   output$plot = NULL
-  #   output$new_value = NULL
-  #   
-  # }) #End of observaion 4
-  
+    # output$button_title = NULL
+    # output$download_button = NULL
+     output$text1 = NULL
+     output$setting = NULL
+    #  output$plot = NULL
+    #  output$new_value = NULL
+       output$table2 = NULL
+   }) #End of observaion 4
+  #, 
   
   
 }
