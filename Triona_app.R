@@ -61,7 +61,7 @@ ui <- fluidPage(
                             fluidRow(
                               
                               textOutput("text1"),
-                              uiOutput("setting") ,
+                              tableOutput("setting") %>% withSpinner(color="#1E90FF"),
                               uiOutput("new_value"),
                               uiOutput("proc"),
                               #uiOutput("reRun"),
@@ -72,23 +72,11 @@ ui <- fluidPage(
                           )
                  ),
                  
-                 tabPanel("New Dataset",  
+                 tabPanel("Dataset",  
                           fluidPage(
                             fluidRow(
                               p("The new dataset will appear here only after all the needed information is given to the app."),
-                              tableOutput("table"),
-                              tableOutput("rerunTest")
-                              
-                            )
-                          )
-                 ),
-                 
-                 tabPanel("Check",  
-                          fluidPage(
-                            fluidRow(
-                              tableOutput("table2"),
-                             
-                              
+                              tableOutput("table")
                             )
                           )
                  )
@@ -110,6 +98,9 @@ server <- function(input, output, session) {
   
   
   df_dim = reactiveVal(NULL)
+  df_text = reactiveVal(NULL)
+  df_text1 = reactiveVal(NULL)
+  
   values = reactiveValues()
   
   
@@ -199,7 +190,7 @@ server <- function(input, output, session) {
       # data = read.csv(input$datafile$datapath)
       # }else{data = values$DF}
       #doe.size = dim(data)[2]-1 # size of the design space i.e. number of x / input variables
-
+tryCatch({
       lower_x = as.numeric(unlist(strsplit(input$lower,",")))
       upper_x = as.numeric(unlist(strsplit(input$higher,",")))
 
@@ -244,34 +235,55 @@ server <- function(input, output, session) {
       res <- optim_sithara(acq,gp_model,prior_data,prior_response,lower_x,upper_x)
       res <- round(t(res),1) # might need to be changed to 2 decimal places or a user input in a later version of the app
       values$RES = res
+  }, error = function(err){
+    showNotification(paste0("Something went wrong! Please make sure you entered correct values."), type = 'err')
+  })
 
     }) #End of 1st run
 
+  
+    
+    observe({
+      
+      
+      #req(values$RES)
+      req(input$run)
+      
+      df_text(
+      numericInput("efficiency", "Please enter the result (target response) of the experiment below and push the Proceed button to update the data for the next run:", value = NA)
+      ) 
+      
+      df_text1(
+        paste0("Based on the ", values$ACQ, " acquisition function, please set up your next experiment at: ")
+      )
+      
+    })
+    
     output$text1 <- renderText({ #Report based on the run
-
+      
       req(values$RES)
-
-
-      paste0("Based on the ", values$ACQ, " acquisition function, please set up your next experiment at: ")
-
+      req(input$run)
+      df_text1()
+      
     })
-
+    
     output$setting <- renderTable({ #Report based on the run
-
-      req(values$RES)
-
+      
+      #req(values$RES)
+      req(input$run)
+      
       values$RES
-
     })
-
     
     
     
     output$new_value = renderUI({ #Ask for new input (efficiency)
 
+      req(input$run)
       req(values$RES)
+      df_text()
 
-      numericInput("efficiency", "Please enter the result (target response) of the experiment below to continue:", value = NA)
+      #numericInput("efficiency", "Please enter the result (target response) of the experiment below to continue:", value = NA)
 
     })
     
@@ -332,18 +344,7 @@ server <- function(input, output, session) {
     })
 
     
-    # observeEvent(input$efficiency,{
-    #   
-    #   req(input$efficiency)
-    #   
-    #   
-    #   output$reRun = renderUI({
-    #     
-    #     actionButton("rerun", "Update data")
-    #     
-    #   })
-    #   
-    # })
+ 
     
     
     observeEvent(input$proceed,{
@@ -354,14 +355,8 @@ server <- function(input, output, session) {
       
     })
     
-    output$table2 = renderTable({
-     
-     df_dim()
-      
-      })
     
-    # 
-    # 
+     
     max_response = reactive({
 
       prior_response = -data()[,input$dvar]
@@ -380,24 +375,29 @@ server <- function(input, output, session) {
 
     })
 
-
+    
+    
     output$plot <- renderPlot({
+      
+      req(input$proceed)
 
-      req(input$efficiency)
+      if(!is.null(values$DF)){
 
-        p=ggplot(data = res_dframe())+
-          geom_point( aes(x = index, y = -target_response, color = Acquisition),size=5) +
-          xlab('Experiment number') +
-          ylab('Target response') +
-          expand_limits(y=c(min_response(),max_response()))
-
-        p + theme_bw()+ #+  geom_text(aes(x = scan_speed_mmpers, y = efficiency_mgperl))+
-          theme(text = element_text(size=20))
-
+      p=ggplot(data = values$DF)+
+        geom_point( aes(x = index, y = target_response, color = Acquisition),size=5) +
+        xlab('Experiment number') +
+        ylab('Target response') +
+        expand_limits(y=c(min_response(),max_response()))
+      
+      p + theme_bw()+ #+  geom_text(aes(x = scan_speed_mmpers, y = efficiency_mgperl))+
+        theme(text = element_text(size=20))
+      }else{}
+      
     })
 
     output$plott <- renderUI({
       
+      req(input$proceed)
       req(input$efficiency)
 
       plotOutput("plot") %>% withSpinner(color="#1E90FF")
@@ -407,9 +407,12 @@ server <- function(input, output, session) {
 
     output$button_title  =  renderUI({
       
-      req(input$efficiency)
+      #req(input$proceed)
+      req(input$datafile)
+      
+      #req(input$efficiency)
 
-      h4(div(HTML("Download new data")))
+      h4(div(HTML("Download Data")))
 
 
     })
@@ -419,25 +422,18 @@ server <- function(input, output, session) {
 
     output$download_button  =  renderUI({
       
-      req(input$efficiency)
+      #req(input$proceed)
+      req(input$datafile)
 
       downloadButton("downloadData", "Download")
 
     })
-    # 
-    # new_data = reactive({
-    #   
-    #   #res_dframe()[,4] = res_dframe()[,4] * (-1)
-    #   return(test)
-    #   
-    # })
-    # 
-    # if(is.null(df_new())){df_new(rbind(df_new(),new_data()))}
-    # else{df_new(rbind(df_new(),new_data()[nrow(new_data()),]))}
-    # 
-    # 
-    output$table <- renderTable({
+     
 
+     
+    output$table <- renderTable({
+      
+      req(input$datafile)
       data()
       
       
@@ -452,23 +448,19 @@ server <- function(input, output, session) {
       }
     )
     
-  #}) #End of observation 3 after clicking run
-  
+
   #Reset all inputs:
-   observeEvent(input$datafile, suspended = TRUE, { # 4 Reseting everything when a new dataset is observed
+   observeEvent(input$datafile, { # 4 Reseting everything when a new dataset is observed
   # 
-  #   # output$selectize1 = NULL
-  #   # output$selectize2 = NULL
-    # output$button_title = NULL
-    # output$download_button = NULL
-     output$text1 = NULL
-     output$setting = NULL
-    #  output$plot = NULL
-    #  output$new_value = NULL
-       output$table2 = NULL
+
+     df_text(NULL)
+     values$DF = NULL
+     values$RES = NULL
+     df_text1(NULL)
+     
+     
    }) #End of observaion 4
   #, 
-  
   
 }
 
