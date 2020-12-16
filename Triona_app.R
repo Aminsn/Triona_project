@@ -76,7 +76,8 @@ ui <- fluidPage(
                           fluidPage(
                             fluidRow(
                               p("The new dataset will appear here only after all the needed information is given to the app."),
-                              tableOutput("table")
+                              tableOutput("table"),
+                             plotOutput("plot2")
                             )
                           )
                  )
@@ -392,6 +393,132 @@ tryCatch({
       p + theme_bw()+ #+  geom_text(aes(x = scan_speed_mmpers, y = efficiency_mgperl))+
         theme(text = element_text(size=20))
       }else{}
+      
+    })
+    
+    
+    output$plot2= renderPlot({
+      
+      data = values$DF
+      doe.size = length(values$DF)-1 # size of the design space i.e. number of x / input variables
+      # Input lower and upper range of values.
+      # Min and max from prior and a slider?
+      # Vector input by the user
+      ## USER APP INPUT
+      lower_x = as.numeric(unlist(strsplit(input$lower,",")))
+      upper_x = as.numeric(unlist(strsplit(input$higher,",")))
+      # Inputs to the optimisation rgenoud algorithms bfgs
+      # These can be set as defaults (not a user input)
+      prior_data = data[,1:doe.size]
+      prior_response = -data[,4] # minimise the negative to optimise the positive
+      #exp_type = rep("Prior",dim(data)[1])
+      ################################################################################################################
+      ######## STEP 2. Fit a GP to this initial data #################################################################
+      ################################################################################################################
+      # First fit a noiseless model to estimate the nugget effect using MLE
+      model_nugget <- km(y~1, # constant linear trend
+                         design=prior_data, # current design
+                         response=prior_response, # experimental results
+                         covtype="matern5_2", # Matern covariance with smoothness 5/2 same as Weaver et al
+                         optim.method="BFGS", # genetic optimizer, could also use bfgs here
+                         nugget.estim=TRUE,
+                         #noise.var=rep(noise.var,1,doe.size), # variance in the noise in the observations
+                         lower=lower_x, # lower bounds of the correlation parameters for optimization
+                         upper=upper_x, # upper bounds of the correlation parameters for optimization
+                         control=list(trace=FALSE)) # this just prints out the summary # removing control=list(trace=FALSE) gives details of optimizer bfgs or genoud
+      # pull out the maximum likelihood estimate of the nugget
+      noise.var= model_nugget@covariance@nugget
+      # compare with var(prior_response[10:14])
+      # Now use this nugget as our homogeneous noise estimate for the noisy GP model fit (noise.var and nugget are mutually exclusive in the diceoptim package)
+      gp_model <- km(y~1,
+                     design = prior_data,
+                     response = prior_response,
+                     covtype = "matern5_2",
+                     optim.method = "BFGS",
+                     noise.var = rep(noise.var,1,dim(prior_data)[1]),
+                     lower = lower_x,
+                     upper = upper_x,
+                     control = list(trace = FALSE))
+  
+      #}
+      ## USER APP INPUT
+      new_efficiency=0.42 # provided by experiment via engineer via app!
+      # This is the optimisation step. It can take from a few seconds (acq="Random") to a couple of minutes (acq="Grid")
+      res1 <- optim_sithara("EQI" ,gp_model,prior_data,prior_response,lower_x,upper_x)
+      res1 <- round(t(res1),1) # might need to be changed to 2 decimal places or a user input in a later version of the app
+      #values$RES1 = cbind(res1,values$ACQ1)
+      #values$RES1 = data.frame(values$RES1)
+      #names(values$RES1) = c(names(prior_data), "Acquisition")
+      res2 <- optim_sithara("AKG",gp_model,prior_data,prior_response,lower_x,upper_x)
+      res2 <- round(t(res2),1) # might need to be changed to 2 decimal places or a user input in a later version of the app
+      #values$RES2 = cbind(res2,values$ACQ2)
+      #values$RES2 = data.frame(values$RES2)
+      #names(values$RES2) = c(names(prior_data), "Acquisition")
+      res3 <- optim_sithara("Grid",gp_model,prior_data,prior_response,lower_x,upper_x)
+      res3 <- round(t(res3),1) # might need to be changed to 2 decimal places or a user input in a later version of the app
+      #values$RES3 = cbind(res3,values$ACQ3)
+      #values$RES3 = data.frame(values$RES3)
+      #names(values$RES3) = c(names(prior_data), "Acquisition")
+      res4 <- optim_sithara("Random",gp_model,prior_data,prior_response,lower_x,upper_x)
+      res4 <- round(t(res4[1:3]),1) # might need to be changed to 2 decimal places or a user input in a later version of the app
+      #values$RES4 = cbind(res4,values$ACQ4)
+      #values$RES4 = data.frame(values$RES4)
+      #names(values$RES4) = c(names(prior_data), "Acquisition")
+      ################################################################################################################
+      ########### STEP 4. # Add the new datapoint to the dataset.  ###################################################
+      ################################################################################################################
+      # Not sure about this rounding. For now maybe keep everything at 1 decimal place. It depends on the sensitivity of the experimental inputs!
+      res = round(res,1) # Sithara requires rounding of 1 decimal place for her machine settings
+      prior_data = rbind(prior_data,res)
+      prior_response = c(prior_response,-new_efficiency)
+      #exp_type = c(exp_type,acq)
+      current_data = cbind(prior_data,prior_response)
+      # This dataset can be used for the output plot.
+      current_data = cbind(c(1:dim(current_data)[1]),prior_data,prior_response)
+      ################################################################################################################
+      ########### STEP 5. Update the plot  ###################################################
+      ################################################################################################################
+      names(current_data)=c("index",names(prior_data),"target_response")
+      res_dframe=data.frame(current_data)
+      max_response <- -min(prior_response)
+      min_response <- -max(prior_response)
+      p=ggplot(data = res_dframe)+
+        geom_point( aes(x = index, y = -target_response),size=5) +
+        xlab('Experiment number') +
+        ylab('Target response') +
+        expand_limits(y=c(min_response,max_response))
+      p + theme_bw()+ #+  geom_text(aes(x = scan_speed_mmpers, y = efficiency_mgperl))+
+        theme(text = element_text(size=20))
+      # ggsave(paste("adaptiveresultsmg.pdf",sep=""))
+      ##########################################################################################
+      ######### OUTPUT TAB WITH 3 MORE PLOTS ###################################################
+      ##########################################################################################
+      # PLot for the first design variable d_1
+      j=1
+      min_input <- lower_x[j]
+      max_input <- upper_x[j]
+      plusminus <- max_input*.1
+      gg_cols = c('#F8766D', '#7CAE00', '#00BFC4', '#C77CFF')
+      the_next_suggested_settings = c(res1[j],res2[j],res3[j],res4[j])
+      p=ggplot(data = res_dframe())+
+        geom_point( aes(x = d_1, y = -target_response),size=7,colour="lightblue") +
+        xlab('d_1') +
+        ylab('Target response') +
+        expand_limits(y=c(min_response,max_response))+
+        expand_limits(x=c(min_input-plusminus,max_input+plusminus))+
+        #expand_limits(x=c((min(res_dframe$d_1))*1.5,(max(res_dframe$d_1))*1.5))+
+        geom_vline(aes(xintercept=the_next_suggested_settings[1]),colour = gg_cols[1]) +
+        geom_vline(aes(xintercept=the_next_suggested_settings[2]),colour = gg_cols[2]) +
+        geom_vline(aes(xintercept=the_next_suggested_settings[3]),colour = gg_cols[3]) +
+        geom_vline(aes(xintercept=the_next_suggested_settings[4]),colour = gg_cols[4])  +
+        annotate("text", the_next_suggested_settings, c(max_response+c(0.03,0.06,0.09,.12)), hjust = -.25,
+                 label =     acquisitions, colour = gg_cols
+        )
+      p + theme_bw() +  geom_text(aes(x = d_1, y = -target_response,label = c(1:15)))+
+        theme(text = element_text(size=20))
+      
+      
+      
       
     })
 
