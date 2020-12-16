@@ -228,8 +228,11 @@ server <- function(input, output, session) {
       
       #prior_data = data[,1:doe.size]
       prior_data = data()[,input$invar]
+      prior_data = na.omit(prior_data)
       #prior_response = -data[,4] # minimise the negative to optimise the positive
       prior_response = -data()[,input$dvar]
+      prior_response = na.omit(prior_response)
+      
       #exp_type = rep("Prior",nrow(data()))
       
       # First fit a noiseless model to estimate the nugget effect using MLE
